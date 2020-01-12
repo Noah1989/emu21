@@ -6,6 +6,7 @@ let cpu = new Z80({
 });
 
 let clock_speed = 10_000_000;
+let tick_duration = 10;
 
 let rom = new Uint8Array(32 * 1024);
 let ram = new Uint8Array(32 * 1024).map(() => Math.random() * 256);
@@ -38,11 +39,49 @@ function mem_write(address, value) {
 }
 
 function io_read(port) {
-    return 0;
+    let result = 0;
+    switch (port & 0xff) {
+        case 0xB8:
+            result = vram_name[vram_addr];
+            break;
+
+        case 0xB9:
+            result = vram_color[vram_addr];
+            break;
+
+        case 0xBA:
+            result = vram_pattern[vram_addr];
+            break;
+
+        case 0xBB:
+            result = vram_palette[vram_addr];
+            break;
+
+        case 0xBC:
+            result = vram_name[vram_addr];
+            vram_addr = (vram_addr + 1) & 0x1fff;
+            break;
+
+        case 0xBD:
+            result = vram_color[vram_addr];
+            vram_addr = (vram_addr + 1) & 0x1fff;
+            break;
+
+        case 0xBE:
+            result = vram_pattern[vram_addr];
+            vram_addr = (vram_addr + 1) & 0x1fff;
+            break;
+
+        case 0xBF:
+            result = vram_palette[vram_addr];
+            vram_addr = (vram_addr + 1) & 0x1fff;
+            break;
+    }
+    return result;
 }
 
 function io_write(port, value) {
-    switch (port) {
+    switch (port & 0xff) {
         case 0xB0:
             scrollX = (scrollX & 0x300) | value;
             break;
@@ -67,11 +106,11 @@ function io_write(port, value) {
             break;
 
         case 0xB3:
-            vram_addr = (vram_addr & 0xFF00) | value;
+            vram_addr = (vram_addr & 0xff00) | value;
             break;
 
         case 0xB4:
-            vram_addr = (vram_addr & 0x00FF) | (value << 8);
+            vram_addr = (vram_addr & 0x00ff) | (value << 8);
             break;
 
         case 0xB8:
@@ -92,27 +131,41 @@ function io_write(port, value) {
 
         case 0xBC:
             vram_name[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0xFFFF;
+            vram_addr = (vram_addr + 1) & 0x1fff;
             break;
 
         case 0xBD:
             vram_color[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0xFFFF;
+            vram_addr = (vram_addr + 1) & 0x1fff;
             break;
 
         case 0xBE:
             vram_pattern[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0xFFFF;
+            vram_addr = (vram_addr + 1) & 0x1fff;
             break;
 
         case 0xBF:
             vram_palette[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0xFFFF;
+            vram_addr = (vram_addr + 1) & 0x1fff;
             break;
     }
 }
 
-function render(timestamp) {
+async function load_rom() {
+    let response = await fetch("./rom.bin");
+    let buffer = await response.arrayBuffer();
+    rom.set(new Uint8Array(buffer, 0, rom.length), 0);
+}
+
+function run_cpu() {
+    let cycles = clock_speed * tick_duration / 1000;
+    let elapsed = 0;
+    while (elapsed < cycles) {
+        elapsed += cpu.run_instruction();
+    }
+}
+
+function render() {
     let element = document.getElementById("vga_screen");
     let context = element.getContext('2d');
     let image = context.getImageData(0, 0, 640, 480);
@@ -122,10 +175,10 @@ function render(timestamp) {
             let videoX = (screenX + scrollX + 3) & 0x3ff;
             let videoY = (screenY + scrollY + 4) & 0x3ff;
 
-            let tileX = (videoX >>> 3) & 0x7F;
-            let tileY = (videoY >>> 3) & 0x3F;
+            let tileX = (videoX >>> 3) & 0x7f;
+            let tileY = (videoY >>> 3) & 0x3f;
             if (text_mode) {
-                tileY = (tileY & 0x3E) | (videoY & 0x200 >>> 9);
+                tileY = (tileY & 0x3e) | ((videoY & 0x200) >>> 9);
             }
             let tile_addr = tileX | (tileY << 7);
 
@@ -143,7 +196,7 @@ function render(timestamp) {
             if (text_mode) {
                 palette_addr |= (videoY & 0x008) << 9;
             } else {
-                pattern_addr |= (videoY & 0x200) << 3;
+                palette_addr |= (videoY & 0x200) << 3;
             }
 
             let color_RrGgBbIi = vram_palette[palette_addr];
@@ -175,6 +228,9 @@ function render(timestamp) {
     window.requestAnimationFrame(render);
 }
 
-cpu.reset();
+load_rom().then(() => {
+    cpu.reset();
+    setInterval(run_cpu, tick_duration);
 
-window.requestAnimationFrame(render);
+    window.requestAnimationFrame(render);
+});
