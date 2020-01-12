@@ -5,7 +5,7 @@ let cpu = new Z80({
     io_write: io_write
 });
 
-let clock_speed = 10_000_000;
+let clock_speed = 10e6;
 let tick_duration = 1000/50;
 let tick_cycles = clock_speed * tick_duration / 1000;
 let tick_elapsed = 0;
@@ -94,11 +94,11 @@ function io_write(port, value) {
             break;
 
         case 0xB2:
-            let scrollX_h = (value & 0b0000_0011);
-            let zoomX_bit = (value & 0b0000_0100) >>> 2;
-            let scrollY_h = (value & 0b0011_0000) >>> 4;
-            let zoomY_bit = (value & 0b0100_0000) >>> 6;
-            let txt_m_bit = (value & 0b1000_0000) >>> 7;
+            let scrollX_h = (value & 0b00000011);
+            let zoomX_bit = (value & 0b00000100) >>> 2;
+            let scrollY_h = (value & 0b00110000) >>> 4;
+            let zoomY_bit = (value & 0b01000000) >>> 6;
+            let txt_m_bit = (value & 0b10000000) >>> 7;
 
             scrollX = (scrollX & 0x0ff) | (scrollX_h << 8);
             scrollY = (scrollY & 0x0ff) | (scrollY_h << 8);
@@ -204,14 +204,14 @@ function render() {
             }
 
             let color_RrGgBbIi = vram_palette[palette_addr];
-            let color_R = (color_RrGgBbIi & 0b1000_0000) >>> 7;
-            let color_r = (color_RrGgBbIi & 0b0100_0000) >>> 6;
-            let color_G = (color_RrGgBbIi & 0b0010_0000) >>> 5;
-            let color_g = (color_RrGgBbIi & 0b0001_0000) >>> 4;
-            let color_B = (color_RrGgBbIi & 0b0000_1000) >>> 3;
-            let color_b = (color_RrGgBbIi & 0b0000_0100) >>> 2;
-            let color_I = (color_RrGgBbIi & 0b0000_0010) >>> 1;
-            let color_i = (color_RrGgBbIi & 0b0000_0001);
+            let color_R = (color_RrGgBbIi & 0b10000000) >>> 7;
+            let color_r = (color_RrGgBbIi & 0b01000000) >>> 6;
+            let color_G = (color_RrGgBbIi & 0b00100000) >>> 5;
+            let color_g = (color_RrGgBbIi & 0b00010000) >>> 4;
+            let color_B = (color_RrGgBbIi & 0b00001000) >>> 3;
+            let color_b = (color_RrGgBbIi & 0b00000100) >>> 2;
+            let color_I = (color_RrGgBbIi & 0b00000010) >>> 1;
+            let color_i = (color_RrGgBbIi & 0b00000001);
             let color_i4 = (color_I << 2) | color_i;
             let color_r4 = (color_R << 3) | (color_r << 1) | color_i4;
             let color_g4 = (color_G << 3) | (color_g << 1) | color_i4;
