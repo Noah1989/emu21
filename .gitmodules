@@ -1,6 +1,6 @@
 [submodule "Z80.js"]
 	path = Z80.js
-	url = https://github.com/DrGoldfire/Z80.js.git
+	url = https://github.com/Noah1989/Z80.js.git
 [submodule "micro-21"]
 	path = micro-21
 	url = https://github.com/Noah1989/micro-21
