@@ -6,7 +6,10 @@ let cpu = new Z80({
 });
 
 let clock_speed = 10_000_000;
-let tick_duration = 10;
+let tick_duration = 1000/50;
+let tick_cycles = clock_speed * tick_duration / 1000;
+let tick_elapsed = 0;
+let cycle_counter = 0;
 
 let rom = new Uint8Array(32 * 1024);
 let ram = new Uint8Array(32 * 1024).map(() => Math.random() * 256);
@@ -158,11 +161,12 @@ async function load_rom() {
 }
 
 function run_cpu() {
-    let cycles = clock_speed * tick_duration / 1000;
-    let elapsed = 0;
-    while (elapsed < cycles) {
-        elapsed += cpu.run_instruction();
+    while (tick_elapsed < tick_cycles) {
+        let elapsed = cpu.run_instruction();
+        tick_elapsed += elapsed;
+        cycle_counter += elapsed;
     }
+    tick_elapsed -= tick_cycles;
 }
 
 function render() {
@@ -234,3 +238,9 @@ load_rom().then(() => {
 
     window.requestAnimationFrame(render);
 });
+
+setInterval(() => {
+    document.getElementById("counter").innerText = cycle_counter.toString();
+    document.getElementById("percent").innerText = (100 * cycle_counter / clock_speed).toFixed(1);
+    cycle_counter = 0;
+}, 1000);
