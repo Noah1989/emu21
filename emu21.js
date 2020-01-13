@@ -90,7 +90,7 @@ function io_read(port) {
             break;
 
         case 0xC1:
-            if(sio_buffer.length) {
+            if (sio_buffer.length) {
                 result = 0x01;
             } else {
                 result = 0x00;
@@ -370,10 +370,41 @@ let ps2Codes = {
     "NumpadEnter": [0xE0, 0x5A]
 };
 
-
 window.addEventListener('keydown', (event) => {
     let bytes = ps2Codes[event.code];
     if (bytes) {
         sio_buffer.push(...bytes)
     }
 }, false);
+
+function load_ram(input) {
+    let file = input.files[0];
+    let reader = new FileReader();
+    reader.onload = (e) => {
+        let lines = e.target.result.split('\n');
+        for (let line of lines) {
+            if (line.substr(0, 1) !== ':') {
+                console.warn("ihex: ignoring line without start marker");
+                continue;
+            }
+            let byte_count = parseInt(line.substr(1, 2), 16);
+            let address = parseInt(line.substr(3, 4), 16);
+            let record_type = parseInt(line.substr(7, 2), 16);
+            if (record_type === 1) {
+                break;
+            }
+            if (byte_count > 0) {
+                let data = line.substr(9, byte_count * 2)
+                    .match(/.{2}/g).map(x => parseInt(x, 16));
+                if (record_type === 0) {
+                    for (let byte of data) {
+                        mem_write(address, byte);
+                        address += 1;
+                    }
+                }
+            }
+        }
+    };
+    reader.readAsText(file);
+    input.value = null;
+}

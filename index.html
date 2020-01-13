@@ -1,14 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <script src="Z80.js/Z80.js"></script>
-  <script src="emu21.js"></script>
-  <title>Micro21 Emulator</title>
+    <meta charset="UTF-8">
+    <script src="Z80.js/Z80.js"></script>
+    <script src="emu21.js"></script>
+    <title>Micro21 Emulator</title>
 </head>
 <body>
-  <h1>Micro21 Emulator</h1>
-  <canvas id="vga_screen" width="640" height="480"></canvas>
-  <p>Emulation speed: <span id="counter">0</span> cycles / second (<span id="percent">0</span>%)</p>
+<h1>Micro21 Emulator</h1>
+<canvas id="vga_screen" width="640" height="480"></canvas>
+<p>
+    <label for="file">Load RAM (<a href="https://en.wikipedia.org/wiki/Intel_HEX" target="_blank">Intel HEX format</a>):</label>
+    <input type="file" id="file" name="file" onchange="load_ram(this)" style="display: none"/>
+    <input type="button" value="Browse..." onclick="document.getElementById('file').click();"/>
+</p>
+<p>
+    Emulation speed: <span id="counter">0</span> cycles / second (<span id="percent">0</span>%)
+</p>
 </body>
 </html>
