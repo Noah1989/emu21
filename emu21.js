@@ -193,8 +193,8 @@ function render() {
 
     for (let screenY = 0; screenY < 480; screenY++) {
         for (let screenX = 0; screenX < 640; screenX++) {
-            let videoX = (screenX + scrollX + 3) & 0x3ff;
-            let videoY = (screenY + scrollY + 4) & 0x3ff;
+            let videoX = ((zoomX ? (screenX / 2 + 2) : (screenX + 3)) + scrollX) & 0x3ff;
+            let videoY = ((zoomY ? (screenY / 2 + 2) : (screenY + 4)) + scrollY) & 0x3ff;
 
             let tileX = (videoX >>> 3) & 0x7f;
             let tileY = (videoY >>> 3) & 0x3f;
