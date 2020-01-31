@@ -27,6 +27,7 @@ let vram_name = new Uint8Array(8 * 1024).map(() => Math.random() * 256);
 let vram_color = new Uint8Array(8 * 1024).map(() => Math.random() * 256);
 let vram_pattern = new Uint8Array(8 * 1024).map(() => Math.random() * 256);
 let vram_palette = new Uint8Array(8 * 1024).map(() => Math.random() * 256);
+let video_dirty = true;
 
 let sio_buffer = [];
 
@@ -104,10 +105,12 @@ function io_write(port, value) {
     switch (port & 0xff) {
         case 0xB0:
             scrollX = (scrollX & 0x300) | value;
+            video_dirty = true;
             break;
 
         case 0xB1:
             scrollY = (scrollY & 0x300) | value;
+            video_dirty = true;
             break;
 
         case 0xB2:
@@ -123,6 +126,8 @@ function io_write(port, value) {
             zoomX = !!zoomX_bit;
             zoomY = !!zoomY_bit;
             text_mode = !!txt_m_bit;
+
+            video_dirty = true;
             break;
 
         case 0xB3:
@@ -134,40 +139,46 @@ function io_write(port, value) {
             break;
 
         case 0xB8:
-            vram_name[vram_addr] = value;
+            video_write(vram_name, value, false);
             break;
 
         case 0xB9:
-            vram_color[vram_addr] = value;
+            video_write(vram_color, value, false);
             break;
 
         case 0xBA:
-            vram_pattern[vram_addr] = value;
+            video_write(vram_pattern, value, false);
             break;
 
         case 0xBB:
-            vram_palette[vram_addr] = value;
+            video_write(vram_palette, value, false);
             break;
 
         case 0xBC:
-            vram_name[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0x1fff;
+            video_write(vram_name, value, true);
             break;
 
         case 0xBD:
-            vram_color[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0x1fff;
+            video_write(vram_color, value, true);
             break;
 
         case 0xBE:
-            vram_pattern[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0x1fff;
+            video_write(vram_pattern, value, true);
             break;
 
         case 0xBF:
-            vram_palette[vram_addr] = value;
-            vram_addr = (vram_addr + 1) & 0x1fff;
+            video_write(vram_palette, value, true);
             break;
+    }
+}
+
+function video_write(vram, value, increment) {
+    if (vram[vram_addr] != value) {
+        vram[vram_addr] = value
+        video_dirty = true;
+    }
+    if (increment) {
+        vram_addr = (vram_addr + 1) & 0x1fff;
     }
 }
 
@@ -187,65 +198,66 @@ function run_cpu() {
 }
 
 function render() {
-    let element = document.getElementById("vga_screen");
-    let context = element.getContext('2d');
-    let image = context.getImageData(0, 0, 640, 480);
+    if(video_dirty) {
+        let element = document.getElementById("vga_screen");
+        let context = element.getContext('2d');
+        let image = context.getImageData(0, 0, 640, 480);
 
-    for (let screenY = 0; screenY < 480; screenY++) {
-        for (let screenX = 0; screenX < 640; screenX++) {
-            let videoX = ((zoomX ? (screenX / 2 + 2) : (screenX + 3)) + scrollX) & 0x3ff;
-            let videoY = ((zoomY ? (screenY / 2 + 2) : (screenY + 4)) + scrollY) & 0x3ff;
+        for (let screenY = 0; screenY < 480; screenY++) {
+            for (let screenX = 0; screenX < 640; screenX++) {
+                let videoX = ((zoomX ? (screenX / 2 + 2) : (screenX + 3)) + scrollX) & 0x3ff;
+                let videoY = ((zoomY ? (screenY / 2 + 2) : (screenY + 4)) + scrollY) & 0x3ff;
 
-            let tileX = (videoX >>> 3) & 0x7f;
-            let tileY = (videoY >>> 3) & 0x3f;
-            if (text_mode) {
-                tileY = (tileY & 0x3e) | ((videoY & 0x200) >>> 9);
+                let tileX = (videoX >>> 3) & 0x7f;
+                let tileY = (videoY >>> 3) & 0x3f;
+                if (text_mode) {
+                    tileY = (tileY & 0x3e) | ((videoY & 0x200) >>> 9);
+                }
+                let tile_addr = tileX | (tileY << 7);
+
+                let patternX = videoX & 0x07;
+                let patternY = videoY & 0x07;
+                let pattern_addr = patternX | ((patternY & 0b110) << 2) | (vram_name[tile_addr] << 5);
+                let pattern_out = vram_pattern[pattern_addr];
+                if (patternY & 0x01) {
+                    pattern_out = pattern_out >>> 4;
+                } else {
+                    pattern_out = pattern_out & 0x0f;
+                }
+
+                let palette_addr = pattern_out | (vram_color[tile_addr] << 4);
+                if (text_mode) {
+                    palette_addr |= (videoY & 0x008) << 9;
+                } else {
+                    palette_addr |= (videoY & 0x200) << 3;
+                }
+
+                let color_RrGgBbIi = vram_palette[palette_addr];
+                let color_R = (color_RrGgBbIi & 0b10000000) >>> 7;
+                let color_r = (color_RrGgBbIi & 0b01000000) >>> 6;
+                let color_G = (color_RrGgBbIi & 0b00100000) >>> 5;
+                let color_g = (color_RrGgBbIi & 0b00010000) >>> 4;
+                let color_B = (color_RrGgBbIi & 0b00001000) >>> 3;
+                let color_b = (color_RrGgBbIi & 0b00000100) >>> 2;
+                let color_I = (color_RrGgBbIi & 0b00000010) >>> 1;
+                let color_i = (color_RrGgBbIi & 0b00000001);
+                let color_i4 = (color_I << 2) | color_i;
+                let color_r4 = (color_R << 3) | (color_r << 1) | color_i4;
+                let color_g4 = (color_G << 3) | (color_g << 1) | color_i4;
+                let color_b4 = (color_B << 3) | (color_b << 1) | color_i4;
+                let color_r8 = (color_r4 << 4) | color_r4;
+                let color_g8 = (color_g4 << 4) | color_g4;
+                let color_b8 = (color_b4 << 4) | color_b4;
+                let image_addr = 4 * (screenY * 640 + screenX);
+                image.data[image_addr] = color_r8;
+                image.data[image_addr + 1] = color_g8;
+                image.data[image_addr + 2] = color_b8;
+                image.data[image_addr + 3] = 255;
             }
-            let tile_addr = tileX | (tileY << 7);
-
-            let patternX = videoX & 0x07;
-            let patternY = videoY & 0x07;
-            let pattern_addr = patternX | ((patternY & 0b110) << 2) | (vram_name[tile_addr] << 5);
-            let pattern_out = vram_pattern[pattern_addr];
-            if (patternY & 0x01) {
-                pattern_out = pattern_out >>> 4;
-            } else {
-                pattern_out = pattern_out & 0x0f;
-            }
-
-            let palette_addr = pattern_out | (vram_color[tile_addr] << 4);
-            if (text_mode) {
-                palette_addr |= (videoY & 0x008) << 9;
-            } else {
-                palette_addr |= (videoY & 0x200) << 3;
-            }
-
-            let color_RrGgBbIi = vram_palette[palette_addr];
-            let color_R = (color_RrGgBbIi & 0b10000000) >>> 7;
-            let color_r = (color_RrGgBbIi & 0b01000000) >>> 6;
-            let color_G = (color_RrGgBbIi & 0b00100000) >>> 5;
-            let color_g = (color_RrGgBbIi & 0b00010000) >>> 4;
-            let color_B = (color_RrGgBbIi & 0b00001000) >>> 3;
-            let color_b = (color_RrGgBbIi & 0b00000100) >>> 2;
-            let color_I = (color_RrGgBbIi & 0b00000010) >>> 1;
-            let color_i = (color_RrGgBbIi & 0b00000001);
-            let color_i4 = (color_I << 2) | color_i;
-            let color_r4 = (color_R << 3) | (color_r << 1) | color_i4;
-            let color_g4 = (color_G << 3) | (color_g << 1) | color_i4;
-            let color_b4 = (color_B << 3) | (color_b << 1) | color_i4;
-            let color_r8 = (color_r4 << 4) | color_r4;
-            let color_g8 = (color_g4 << 4) | color_g4;
-            let color_b8 = (color_b4 << 4) | color_b4;
-            let image_addr = 4 * (screenY * 640 + screenX);
-            image.data[image_addr] = color_r8;
-            image.data[image_addr + 1] = color_g8;
-            image.data[image_addr + 2] = color_b8;
-            image.data[image_addr + 3] = 255;
         }
+        context.putImageData(image, 0, 0);
+        video_dirty = false;
     }
-
-    context.putImageData(image, 0, 0);
-
     window.requestAnimationFrame(render);
 }
 
