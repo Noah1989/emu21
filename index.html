@@ -13,6 +13,7 @@
     <label for="file">Load RAM (<a href="https://en.wikipedia.org/wiki/Intel_HEX" target="_blank">Intel HEX format</a>):</label>
     <input type="file" id="file" name="file" onchange="load_ram(this);" style="display: none"/>
     <input type="button" value="Browse..." onclick="document.getElementById('file').click(); this.blur();"/>
+    <input type="button" value="Reset" onclick="cpu.reset(); this.blur();"/>
 </p>
 <p>
     Emulation speed: <span id="counter">0</span> cycles / second (<span id="percent">0</span>%)
