@@ -4,6 +4,7 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <SDL.h>
+#include "sdl-ps2.h"
 #include "Z80.h"
 
 SDL_Surface *screen;
@@ -26,6 +27,15 @@ Uint16 scrollY = 0;
 Uint64 cycles = 0;
 
 _Bool video_dirty = 1;
+
+Uint8 sio_register_selected_a = 0;
+Uint8 sio_register_selected_b = 0;
+Uint8 sio_interrupt_vector = 0;
+
+_Bool keyboard_interrupts_enabled = 0;
+Uint8 keyboard_buffer[MAX_PS2_CODE_LEN];
+int keyboard_buffer_len = 0;
+int keyboard_buffer_pos = 0;
 
 void set_video_mode(Uint8 value) {
 	Uint8 scrollX_h = (value & 0b00000011);
@@ -108,15 +118,19 @@ Uint8 io_in(void *context, Uint16 port) {
 		break;
 
 	case 0xC0:
-		//result = sio_buffer.shift();
+		if (keyboard_buffer_pos < keyboard_buffer_len) {
+			result = keyboard_buffer[keyboard_buffer_pos++];
+		} else {
+			result = 0x00;
+		}
 		break;
 
 	case 0xC1:
-		/*if (sio_buffer.length) {
+		if (keyboard_buffer_pos < keyboard_buffer_len) {
 			result = 0x01;
 		} else {
 			result = 0x00;
-		}*/
+		}
 		break;
 
 	case 0xC3:
@@ -186,15 +200,52 @@ void io_out(void *context, Uint16 port, Uint8 value) {
 		video_write(vram_palette, value, 1);
 		break;
 
+	case 0xC1:
+		switch (sio_register_selected_a) {
+		case 0:
+			sio_register_selected_a = value & 0x07;
+			break;
+		case 1:
+			if (value & 0b00011000) {
+				keyboard_interrupts_enabled = 1;
+				printf("keyboard interrupts enabled\n");
+			} else {
+				keyboard_interrupts_enabled = 0;
+				printf("keyboard interrupts disabled\n");
+			};
+			sio_register_selected_a = 0;
+			break;
+		default:
+			sio_register_selected_a = 0;
+		}
+		break;
+
 	case 0xC2:
 		putchar(value);
 		break;
 
+	case 0xC3:
+		switch (sio_register_selected_b) {
+		case 0:
+			sio_register_selected_b = value & 0x07;
+			break;
+		case 2:
+			sio_interrupt_vector = value;
+			sio_register_selected_b = 0;
+			break;
+		default:
+			sio_register_selected_a = 0;
+		}
+		break;
 	}
 };
 
 Uint32 int_data(void *context) {
-	return 0;
+	Uint8 result = sio_interrupt_vector;
+	z80_int(context, 0);
+	//printf("interrupt acknowledge %.2x\n", result);
+	return result << 24;
+
 };
 
 void halt(void *context, zboolean state) {
@@ -202,7 +253,7 @@ void halt(void *context, zboolean state) {
 };
 
 Z80 cpu = {
-	.context = NULL,
+	.context = &cpu,
 	.read = mem_read,
 	.write = mem_write,
 	.in = io_in,
@@ -226,7 +277,31 @@ void init_video() {
 	vram_address = 0;
 }
 
+void handle_input() {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {
+		switch (event.type) {
+		case SDL_KEYDOWN:
+			keyboard_buffer_len = ps2_encode(event.key.keysym.scancode, 1, keyboard_buffer);
+			keyboard_buffer_pos = 0;
+			if (keyboard_interrupts_enabled) {
+				z80_int(&cpu, 1);
+			}
+			return;
+		case SDL_KEYUP:
+			keyboard_buffer_len = ps2_encode(event.key.keysym.scancode, 0, keyboard_buffer);
+			keyboard_buffer_pos = 0;
+			if (keyboard_interrupts_enabled) {
+				z80_int(&cpu, 1);
+			}
+			return;
+		}
+	}
+}
+
 void render_frame() {
+
+	handle_input();
 
 	cycles += z80_run(&cpu, 10000000/60);
 
@@ -307,14 +382,12 @@ void run(void *arg, void *rom_data, int rom_data_size) {
 
 	init_video();
 	init_cpu();
-
-	emscripten_set_interval(stats, 10000, NULL);
-
-	SDL_Init(SDL_INIT_VIDEO);
-	screen = SDL_SetVideoMode(640, 480, 32, SDL_SWSURFACE);
-	emscripten_set_main_loop(render_frame, 60, 1);
 }
 
 int main(int argc, char* argv[]) {
 	emscripten_async_wget_data("rom.bin", NULL, run, NULL);
+
+	SDL_Init(SDL_INIT_VIDEO);
+	screen = SDL_SetVideoMode(640, 480, 32, SDL_SWSURFACE);
+	emscripten_set_main_loop(render_frame, 60, 1);
 }
