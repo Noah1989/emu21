@@ -1,16 +1,21 @@
 #include <stdio.h>
-#include <SDL.h>
+#include <stdlib.h>
+#include <string.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
-#include <stdlib.h>
+#include <SDL.h>
 #include "Z80.h"
 
 SDL_Surface *screen;
+
+Uint8 rom[32*1024];
+Uint8 ram[32*1024];
 
 Uint8 vram_name[8192];
 Uint8 vram_attribute[8192];
 Uint8 vram_pattern[8192];
 Uint8 vram_palette[8192];
+Uint16 vram_address;
 
 _Bool text_mode = 0;
 _Bool zoomX = 0;
@@ -22,20 +27,170 @@ Uint64 cycles = 0;
 
 _Bool video_dirty = 1;
 
+void set_video_mode(Uint8 value) {
+	Uint8 scrollX_h = (value & 0b00000011);
+	Uint8 zoomX_bit = (value & 0b00000100) >> 2;
+	Uint8 scrollY_h = (value & 0b00110000) >> 4;
+	Uint8 zoomY_bit = (value & 0b01000000) >> 6;
+	Uint8 txt_m_bit = (value & 0b10000000) >> 7;
+
+	scrollX = (scrollX & 0x0ff) | (scrollX_h << 8);
+	scrollY = (scrollY & 0x0ff) | (scrollY_h << 8);
+
+	zoomX = !!zoomX_bit;
+	zoomY = !!zoomY_bit;
+	text_mode = !!txt_m_bit;
+
+	video_dirty = 1;
+}
+
+void video_write(Uint8 *table, Uint8 value, _Bool increment) {
+	table[vram_address] = value;
+	if (increment) {
+		vram_address = (vram_address + 1) & 0x1fff;
+	}
+	video_dirty = 1;
+}
+
 Uint8 mem_read(void *context, Uint16 address) {
-	return 0;
+	if (address & 0x8000) {
+		return ram[address & 0x7FFF];
+	} else {
+		return rom[address & 0x7FFF];
+	}
 }
 
 void mem_write(void *context, Uint16 address, Uint8 value) {
-	// TODO
+	if (address & 0x8000) {
+		ram[address & 0x7FFF] = value;
+	} else {
+		// nothing happens
+	}
 };
 
 Uint8 io_in(void *context, Uint16 port) {
-	return 0;
+	Uint8 result = 0;
+	switch (port & 0xff) {
+	case 0xB8:
+		result = vram_name[vram_address];
+		break;
+
+	case 0xB9:
+		result = vram_attribute[vram_address];
+		break;
+
+	case 0xBA:
+		result = vram_pattern[vram_address];
+		break;
+
+	case 0xBB:
+		result = vram_palette[vram_address];
+		break;
+
+	case 0xBC:
+		result = vram_name[vram_address];
+		vram_address = (vram_address + 1) & 0x1fff;
+		break;
+
+	case 0xBD:
+		result = vram_attribute[vram_address];
+		vram_address = (vram_address + 1) & 0x1fff;
+		break;
+
+	case 0xBE:
+		result = vram_pattern[vram_address];
+		vram_address = (vram_address + 1) & 0x1fff;
+		break;
+
+	case 0xBF:
+		result = vram_palette[vram_address];
+		vram_address = (vram_address + 1) & 0x1fff;
+		break;
+
+	case 0xC0:
+		//result = sio_buffer.shift();
+		break;
+
+	case 0xC1:
+		/*if (sio_buffer.length) {
+			result = 0x01;
+		} else {
+			result = 0x00;
+		}*/
+		break;
+
+	case 0xC3:
+		// sender ready and all data sent
+		result = 0b00000101;
+		break;
+	}
+
+	//printf("I/O read %.2x from port %.2x\n", result, port&0xFF);
+	return result;
 };
 
 void io_out(void *context, Uint16 port, Uint8 value) {
-	// TODO
+	//printf("I/O write %.2x to port %.2x\n", value, port&0xFF);
+	switch (port & 0xff) {
+	case 0xB0:
+		scrollX = (scrollX & 0x300) | value;
+		video_dirty = 1;
+		break;
+
+	case 0xB1:
+		scrollY = (scrollY & 0x300) | value;
+		video_dirty = 1;
+		break;
+
+	case 0xB2:
+		set_video_mode(value);
+		break;
+
+	case 0xB3:
+		vram_address = (vram_address & 0x1f00) | value;
+		break;
+
+	case 0xB4:
+		vram_address = (vram_address & 0x00ff) | ((value & 0x1F) << 8);
+		break;
+
+	case 0xB8:
+		video_write(vram_name, value, 0);
+		break;
+
+	case 0xB9:
+		video_write(vram_attribute, value, 0);
+		break;
+
+	case 0xBA:
+		video_write(vram_pattern, value, 0);
+		break;
+
+	case 0xBB:
+		video_write(vram_palette, value, 0);
+		break;
+
+	case 0xBC:
+		video_write(vram_name, value, 1);
+		break;
+
+	case 0xBD:
+		video_write(vram_attribute, value, 1);
+		break;
+
+	case 0xBE:
+		video_write(vram_pattern, value, 1);
+		break;
+
+	case 0xBF:
+		video_write(vram_palette, value, 1);
+		break;
+
+	case 0xC2:
+		putchar(value);
+		break;
+
+	}
 };
 
 Uint32 int_data(void *context) {
@@ -68,13 +223,12 @@ void init_video() {
 		vram_pattern[i] = rand()%255;
 		vram_palette[i] = rand()%255;
 	}
+	vram_address = 0;
 }
 
 void render_frame() {
 
 	cycles += z80_run(&cpu, 10000000/60);
-
-	video_dirty=1;
 
 	if (!video_dirty) return;
 
@@ -142,18 +296,25 @@ void render_frame() {
 }
 
 void stats(void *userData) {
-	printf("%llu\n", cycles);
+	printf("%llu cycles/second (%llu%%)\n", cycles/10, cycles/1000000);
 	cycles = 0;
 }
 
-int main(int argc, char* argv[]) {
+void run(void *arg, void *rom_data, int rom_data_size) {
+
+	memcpy(rom, rom_data, rom_data_size);
+	printf("%d bytes of ROM initialized\n", rom_data_size);
 
 	init_video();
 	init_cpu();
 
-	emscripten_set_interval(stats, 1000, NULL);
+	emscripten_set_interval(stats, 10000, NULL);
 
 	SDL_Init(SDL_INIT_VIDEO);
 	screen = SDL_SetVideoMode(640, 480, 32, SDL_SWSURFACE);
 	emscripten_set_main_loop(render_frame, 60, 1);
+}
+
+int main(int argc, char* argv[]) {
+	emscripten_async_wget_data("rom.bin", NULL, run, NULL);
 }
